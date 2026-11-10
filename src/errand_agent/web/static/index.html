@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Errand Agent</title>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@19.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@19.3.1/client?deps=react@19.3.1",
+    "streamdown": "https://esm.sh/streamdown@2.7.1?deps=react@19.3.1,react-dom@19.3.1"
+  }
+}
+</script>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #6b7385; --line: #e3e6ec;
+    --accent: #2f6fde; --accent-ink: #fff; --user: #2f6fde; --agent: #f1f3f7;
+    --ok: #1f8a4c; --warn: #b7791f; --bad: #c53030; --violet: #6b46c1; --blue: #2b6cb0;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--ink); height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel);
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--agent); color: var(--muted); }
+  .pill.phase { background: #e6efff; color: var(--blue); font-weight: 600; }
+  .spacer { flex: 1; }
+  .controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .controls label { font-size: 12px; color: var(--muted); }
+  button, select { font: inherit; font-size: 12px; border: 1px solid var(--line); background: var(--panel);
+                   border-radius: 6px; padding: 5px 9px; cursor: pointer; color: var(--ink); }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  main { flex: 1; display: grid; grid-template-columns: minmax(380px, 1.1fr) minmax(400px, 1fr); min-height: 0; }
+  section { display: flex; flex-direction: column; min-height: 0; }
+  #chat { border-right: 1px solid var(--line); background: var(--panel); }
+  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 88%; padding: 10px 13px; border-radius: 12px; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user); color: #fff; border-bottom-right-radius: 4px; white-space: pre-wrap; }
+  .msg.agent { align-self: flex-start; background: var(--agent); border-bottom-left-radius: 4px; min-width: 260px; }
+  .msg.note { align-self: flex-start; background: #fff7e6; border: 1px solid #f6d58e; }
+  .meta { display: block; font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  /* markdown (Streamdown output) */
+  .md { font-size: 14px; }
+  .md > *:first-child { margin-top: 0; } .md > *:last-child { margin-bottom: 0; }
+  .md p { margin: 0 0 8px; }
+  .md ul, .md ol { margin: 4px 0 8px; padding-left: 22px; }
+  .md li { margin: 2px 0; } .md li > p { margin: 0; }
+  .md strong { font-weight: 650; }
+  .md h1, .md h2, .md h3, .md h4 { font-size: 14px; margin: 10px 0 6px; }
+  .md code { font-family: var(--mono); font-size: 12px; background: #e7eaf0; padding: 1px 4px; border-radius: 4px; }
+  .md pre { background: #1e2330; color: #e6e9ef; padding: 10px; border-radius: 8px; overflow-x: auto; }
+  .md pre code { background: none; padding: 0; color: inherit; }
+  .md table { border-collapse: collapse; margin: 6px 0; font-size: 13px; }
+  .md th, .md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+  .md a { color: var(--accent); }
+  .md blockquote { margin: 6px 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted); }
+  .caret::after { content: "▍"; animation: blink 1s steps(1) infinite; color: var(--accent); }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* thinking / processing panel */
+  details.work { margin: -2px 0 8px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfd; }
+  details.work > summary { cursor: pointer; list-style: none; padding: 6px 10px; font-size: 12px; color: var(--muted);
+                           display: flex; align-items: center; gap: 8px; }
+  details.work > summary::-webkit-details-marker { display: none; }
+  details.work > summary::before { content: "▸"; font-size: 10px; transition: transform .15s; }
+  details.work[open] > summary::before { transform: rotate(90deg); }
+  .spin { width: 10px; height: 10px; border: 2px solid #c7cfe0; border-top-color: var(--accent); border-radius: 50%;
+          animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .steps { padding: 2px 10px 8px; display: flex; flex-direction: column; gap: 3px; max-height: 340px; overflow-y: auto; }
+  .step { display: grid; grid-template-columns: 74px 1fr auto; gap: 8px; font-size: 12px; align-items: baseline;
+          padding: 2px 0; border-bottom: 1px solid #f0f2f5; }
+  .step:last-child { border-bottom: none; }
+  .step .ic { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .04em; color: #5b6478;
+              background: #eef1f6; border-radius: 4px; padding: 1px 5px; text-align: center; }
+  .step.warn .ic { background: #fdf3e1; color: var(--warn); } .step.bad .ic { background: #fdeaea; color: var(--bad); }
+  .step.good .ic { background: #e5f5ec; color: var(--ok); } .step.thought .ic { background: #efeafc; color: var(--violet); }
+  .step .tx { color: var(--ink); overflow-wrap: anywhere; }
+  .step .tm { color: var(--muted); font-family: var(--mono); font-size: 10px; }
+  .step.thought .tx { color: #4a5368; font-style: italic; }
+  .step.thought .tx .md { font-size: 12px; }
+  .step.thought .tx .md p { margin: 0 0 4px; }
+  .step.warn .tx { color: var(--warn); } .step.bad .tx { color: var(--bad); } .step.good .tx { color: var(--ok); }
+  .step .sub { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+
+  .card { margin-top: 10px; border: 1px solid #c9b8f0; background: #f7f3ff; border-radius: 10px; padding: 10px; }
+  .card .title { font-weight: 600; color: var(--violet); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .card .row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+  .card code { font-size: 11px; color: var(--muted); }
+  form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
+  form input { flex: 1; font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; }
+  .suggest { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px 10px; }
+  .suggest button { font-size: 11px; color: var(--muted); }
+
+  #side .tabs { display: flex; gap: 2px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); background: var(--panel); align-items: center; }
+  .tab { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 10px; color: var(--muted); }
+  .tab.active { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .pane { flex: 1; overflow-y: auto; padding: 10px 12px; display: none; }
+  .pane.active { display: block; }
+  .run { margin-bottom: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .run > .head { padding: 6px 10px; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--line);
+                 display: flex; gap: 8px; background: #fafbfc; border-radius: 8px 8px 0 0; }
+  .ev { display: grid; grid-template-columns: 58px 120px 1fr; gap: 8px; padding: 3px 10px; font-size: 12px;
+        border-bottom: 1px dashed #eef0f4; cursor: pointer; align-items: baseline; }
+  .ev:last-child { border-bottom: none; }
+  .ev .t { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+  .ev .k { font-family: var(--mono); font-size: 11px; font-weight: 600; }
+  .ev .s { overflow-wrap: anywhere; }
+  .ev pre { grid-column: 1 / -1; margin: 4px 0; background: #f4f5f8; padding: 8px; border-radius: 6px;
+            font-size: 11px; white-space: pre-wrap; max-height: 320px; overflow: auto; }
+  .k.model_call, .k.model_request { color: var(--violet); } .k.tool_call { color: var(--blue); } .k.state { color: var(--ok); }
+  .k.approval { color: #9c4221; } .k.guard, .k.error, .k.limit_reached { color: var(--bad); }
+  .k.ambiguous_outcome, .k.reconcile, .k.retry, .k.untrusted_content, .k.event_detected, .k.decision { color: var(--warn); }
+  .k.context { color: #2c7a7b; }
+  .ev.hl { background: #fff8e8; } .ev.bad { background: #fff1f1; }
+  table.grid { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--panel); }
+  table.grid th, table.grid td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.grid th { color: var(--muted); font-weight: 600; }
+  h3 { font-size: 13px; margin: 14px 0 6px; }
+  .tag { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--agent); }
+  .tag.active { background: #e3f6ea; color: var(--ok); } .tag.forgotten { background: #fde8e8; color: var(--bad); }
+  .tag.superseded { background: #eee; color: var(--muted); } .tag.inferred { background: #fff3d6; color: var(--warn); }
+  .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff;
+           padding: 8px 14px; border-radius: 8px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: .92; }
+  .banner { padding: 12px 16px; background: #fde8e8; color: var(--bad); display: none; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } #chat { border-right: none; min-height: 65vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Errand Agent</h1>
+  <span class="pill" id="model">model …</span>
+  <span class="pill phase" id="phase">…</span>
+  <span class="pill" id="clock">…</span>
+  <span class="spacer"></span>
+  <div class="controls">
+    <label>Next book()</label>
+    <select id="nextBook">
+      <option value="success">success</option>
+      <option value="timeout_booked">timeout (actually booked)</option>
+      <option value="timeout_not_booked">timeout (not booked)</option>
+      <option value="slot_taken">slot taken</option>
+    </select>
+    <button data-demo="next_book">Arm</button>
+    <button data-demo="price_drift" title="Next hold quotes a higher price than search">Price drift</button>
+    <button data-demo="advance_clock" title="Moves the clock past the 10-minute hold">+11 min</button>
+    <button data-demo="provider_cancel" title="The provider cancels your latest confirmed booking">Provider cancels</button>
+    <button data-demo="reset">Reset</button>
+  </div>
+</header>
+<div class="banner" id="banner"></div>
+<main>
+  <section id="chat">
+    <div id="messages"></div>
+    <div class="suggest" id="suggest"></div>
+    <form id="form"><input id="input" autocomplete="off" placeholder="Ask for an errand…"><button class="primary" id="send">Send</button></form>
+  </section>
+  <section id="side">
+    <div class="tabs">
+      <button class="tab active" data-pane="trace">Trace</button>
+      <button class="tab" data-pane="state">State &amp; bookings</button>
+      <button class="tab" data-pane="memory">Memory</button>
+    </div>
+    <div class="pane active" id="trace"></div>
+    <div class="pane" id="state"></div>
+    <div class="pane" id="memory"></div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ---------------------------------------------------------------- markdown (Streamdown)
+let renderMarkdown;
+try {
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { Streamdown } = await import("streamdown");
+  const roots = new WeakMap();
+  renderMarkdown = (el, text, streaming = false) => {
+    let root = roots.get(el);
+    if (!root) { root = createRoot(el); roots.set(el, root); }
+    root.render(React.createElement(Streamdown, { parseIncompleteMarkdown: true, isAnimating: streaming }, text || ""));
+  };
+} catch (err) {
+  console.warn("Streamdown unavailable, falling back to plain text", err);
+  renderMarkdown = (el, text) => { el.style.whiteSpace = "pre-wrap"; el.textContent = text || ""; };
+}
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const short = (o, n = 110) => { const s = typeof o === "string" ? o : JSON.stringify(o); return s.length > n ? s.slice(0, n) + "…" : s; };
+let evAfter = 0, noteAfter = 0, busy = false;
+const runs = {};
+
+// ---------------------------------------------------------------- chat
+const SUGGESTIONS = [
+  "Find a plumber for my kitchen tap this week, mornings only, under ₹1,500.",
+  "Move my AC servicing to Saturday.",
+  "Book the same electrician as last time, but not before 10 a.m.",
+  "What do you remember about me?",
+];
+$("#suggest").innerHTML = SUGGESTIONS.map(s => `<button type="button">${esc(s)}</button>`).join("");
+$("#suggest").querySelectorAll("button").forEach(b => b.onclick = () => send(b.textContent));
+
+function scrollChat() { const m = $("#messages"); m.scrollTop = m.scrollHeight; }
+function toast(text) { const t = $("#toast"); t.textContent = text; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2600); }
+
+function addUser(text) {
+  const el = document.createElement("div"); el.className = "msg user"; el.textContent = text;
+  $("#messages").appendChild(el); scrollChat();
+}
+
+function cardHtml(c) {
+  return `<div class="card"><div class="title">Approval required · ${esc(c.action)}</div>
+    <div>${esc(c.summary)}</div>
+    <div class="row"><button class="primary" data-ap="${esc(c.approval_id)}">Confirm</button>
+    <code>${esc(c.approval_id)} · fingerprint ${esc(c.fingerprint)}</code></div></div>`;
+}
+
+function replyMeta(r) {
+  const parts = [`phase ${r.phase}`, r.run_id];
+  if (r.outcome) parts.unshift(`outcome: ${r.outcome.status}${r.outcome.reason ? " (" + r.outcome.reason + ")" : ""}`);
+  return parts.join(" · ");
+}
+
+// A live agent message: processing panel + streaming markdown body + card + meta.
+class AgentMessage {
+  constructor(kind = "agent") {
+    this.el = document.createElement("div"); this.el.className = "msg " + kind;
+    this.el.innerHTML = `<details class="work" open><summary><span class="spin"></span><span class="label">Working…</span></summary><div class="steps"></div></details><div class="md"></div><div class="extra"></div>`;
+    this.details = this.el.querySelector("details"); this.steps = this.el.querySelector(".steps");
+    this.label = this.el.querySelector(".label"); this.body = this.el.querySelector(".md");
+    this.extra = this.el.querySelector(".extra");
+    this.draft = ""; this.thought = null; this.thoughtText = ""; this.count = 0; this.t0 = performance.now();
+    this.pending = null; this.raf = 0;
+    $("#messages").appendChild(this.el); scrollChat();
+  }
+  step(icon, html, cls = "", time = "") {
+    const s = document.createElement("div"); s.className = "step " + cls;
+    s.innerHTML = `<span class="ic">${icon}</span><span class="tx">${html}</span><span class="tm">${esc(time)}</span>`;
+    this.steps.appendChild(s); this.steps.scrollTop = this.steps.scrollHeight; this.count++;
+    this.label.textContent = this.stripTags(html).slice(0, 90); scrollChat(); return s;
+  }
+  stripTags(h) { const d = document.createElement("div"); d.innerHTML = h; return d.textContent; }
+  thinking(chunk) {
+    if (!this.thought) {
+      this.thought = this.step("REASONING", `<div class="md"></div>`, "thought"); this.thoughtText = "";
+    }
+    this.thoughtText += chunk; this.label.textContent = "Thinking…";
+    renderMarkdown(this.thought.querySelector(".md"), this.thoughtText, true);
+  }
+  text(chunk) {
+    this.draft += chunk; this.body.classList.add("caret");
+    if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; renderMarkdown(this.body, this.draft, true); scrollChat(); });
+  }
+  endTurn(toolCalls) {
+    // A model turn ended in tool calls: any text it streamed was a preamble, so move it into the work log.
+    if (this.thought) { renderMarkdown(this.thought.querySelector(".md"), this.thoughtText, false); this.thought = null; }
+    if (toolCalls && this.draft.trim()) { this.step("NOTE", esc(short(this.draft, 220))); this.draft = ""; renderMarkdown(this.body, ""); }
+  }
+  finish(reply) {
+    if (this.thought) { renderMarkdown(this.thought.querySelector(".md"), this.thoughtText, false); this.thought = null; }
+    this.body.classList.remove("caret");
+    renderMarkdown(this.body, reply.text, false);       // the app's authoritative text replaces the draft
+    if (reply.approval_card) { this.extra.innerHTML = cardHtml(reply.approval_card); wireCards(this.extra); }
+    this.extra.insertAdjacentHTML("beforeend", `<span class="meta">${esc(replyMeta(reply))}</span>`);
+    const secs = ((performance.now() - this.t0) / 1000).toFixed(1);
+    this.details.querySelector(".spin")?.remove();
+    this.label.textContent = `Show work · ${this.count} steps · ${secs}s`;
+    this.details.open = false; scrollChat();
+  }
+  fail(msg) {
+    this.details.querySelector(".spin")?.remove(); this.label.textContent = "Failed";
+    this.body.classList.remove("caret"); renderMarkdown(this.body, "**Error:** " + msg);
+  }
+}
+
+function onEvent(msg, e) {
+  const ms = e.elapsed_ms != null ? `+${Math.round(e.elapsed_ms)}ms` : "";
+  switch (e.type) {
+    case "llm_stream":
+      if (e.kind === "thought") msg.thinking(e.chunk);
+      else if (e.kind === "text") msg.text(e.chunk);
+      else if (e.kind === "reset") { msg.draft = ""; renderMarkdown(msg.body, ""); msg.step("RETRY", "Model call restarted (retry/failover)", "warn"); }
+      return;
+    case "context": {
+      const ex = Object.values(e.memory_excluded || {}).reduce((a, r) => (a[r] = (a[r] || 0) + 1, a), {});
+      const exs = Object.entries(ex).map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`).join(", ");
+      return msg.step("CONTEXT", `Built context: <b>${e.estimated_tokens.toLocaleString()}</b> / ${e.budget_tokens.toLocaleString()} tokens · ${e.memory_included.length} memories used <span class="sub">(left out: ${esc(exs)})</span> · history ${e.history_included} kept, ${e.history_dropped} trimmed`, "", ms);
+    }
+    case "model_request": return msg.step("MODEL", `Asking <b>${esc(e.model)}</b> (step ${e.turn})…`, "", ms);
+    case "model_call":
+      msg.endTurn(e.tool_calls.length);
+      return msg.step("MODEL", e.tool_calls.length
+        ? `Model decided to call ${e.tool_calls.map(c => `<b>${esc(c.name)}</b><span class="sub">(${esc(short(c.args, 90))})</span>`).join(", ")}`
+        : `Model wrote the reply`, "", `${e.input_tokens}+${e.output_tokens} tok · ${Math.round(e.latency_ms)}ms`);
+    case "tool_call":
+      return msg.step("TOOL", `${esc(e.tool)} → ${e.ok ? "ok" : `<b>${esc(e.error)}</b>`}${e.ok && e.result && e.result.providers ? ` <span class="sub">(${e.result.providers.length} providers)</span>` : ""}${e.ok && e.result && e.result.quoted_price ? ` <span class="sub">(${esc(e.result.hold_id)} · ₹${e.result.quoted_price})</span>` : ""}`, e.ok ? "" : "warn", `${Math.round(e.latency_ms)}ms`);
+    case "agent_tool": {
+      const r = e.result || {};
+      if (r.error) return msg.step("BLOCKED", `${esc(e.tool)} refused: <b>${esc(r.error)}</b> <span class="sub">${esc(short(r.message, 120))}</span>`, "bad", ms);
+      if (e.tool === "update_request") return msg.step("REQUEST", `Request updated ${r.changed && r.changed.length ? `(${esc(r.changed.join(", "))})` : ""} · missing: <b>${esc((r.missing || []).join(", ") || "none")}</b>`, "", ms);
+      if (e.tool === "request_approval") return msg.step("APPROVAL", `Approval card <b>${esc(r.approval_id)}</b> created; waiting for you`, "good", ms);
+      return msg.step("MEMORY", `${esc(e.tool)} <span class="sub">${esc(short(r, 120))}</span>`, "", ms);
+    }
+    case "state":
+      if (e.entity === "workflow") return msg.step("STATE", `Phase ${esc(e.frm)} → <b>${esc(e.to)}</b> <span class="sub">${esc(e.reason || "")}</span>`, "", ms);
+      return msg.step("ACTION", `Action ${esc(e.action || "")} → <b>${esc(e.to)}</b> ${e.idempotency_key ? `<span class="sub">key ${esc(e.idempotency_key)}</span>` : ""}${e.reason ? ` <span class="sub">${esc(e.reason)}</span>` : ""}`, e.to === "CONFIRMED" ? "good" : e.to === "FAILED" ? "bad" : "", ms);
+    case "approval": return msg.step("APPROVAL", `Approval ${esc(e.approval_id)} → <b>${esc(e.status)}</b>${e.reason ? ` <span class="sub">${esc(e.reason)}</span>` : ""}${e.via ? ` <span class="sub">via ${esc(e.via)}</span>` : ""}`, e.status === "invalidated" ? "warn" : "", ms);
+    case "action_log": return msg.step("LOG", `Write-ahead log ${esc(e.idempotency_key)} → <b>${esc(e.status)}</b>`, "", ms);
+    case "ambiguous_outcome": return msg.step("CHECK", `<b>${esc(e.tool)}</b> ${esc(e.error)}: outcome unknown, checking the source of truth before doing anything else`, "warn", ms);
+    case "retry": return msg.step("RETRY", `Retry ${esc(e.tool)} #${e.attempt} <span class="sub">${esc(e.reason || e.error || "")}</span>`, "warn", ms);
+    case "reconcile": case "recovery": return msg.step("RECOVER", `Reconciling ${esc(e.idempotency_key || e.approval_id)}`, "warn", ms);
+    case "guard": return msg.step("GUARD", `Blocked by app rule: <b>${esc(e.rule)}</b>`, "bad", ms);
+    case "untrusted_content": return msg.step("GUARD", `${e.flagged_reviews} review(s) of ${esc(e.provider_id)} contained instructions and were kept out of the model's context`, "warn", ms);
+    case "memory": return msg.step("MEMORY", `Memory ${esc(e.op)} <span class="sub">${esc(short(e, 120))}</span>`, "", ms);
+    case "decision": return msg.step("DECISION", esc(e.what.replace(/_/g, " ")), "", ms);
+    case "limit_reached": return msg.step("BLOCKED", `Hit the ${esc(e.kind)} limit (${e.limit})`, "bad", ms);
+    case "error": return msg.step("BLOCKED", `${esc(e.source)} error: ${esc(short(e.error, 160))}`, "bad", ms);
+    case "verification_failed": return msg.step("CHECK", `Couldn't verify ${esc(e.idempotency_key)} yet`, "warn", ms);
+    case "user_action": return msg.step("INPUT", `Confirm button for ${esc(e.approval_id)}`, "", ms);
+    default: return;
+  }
+}
+
+async function streamRun(url, body, msg) {
+  try {
+    const res = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    if (!res.ok || !res.body) throw new Error(res.statusText);
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
+    while (true) {
+      const {value, done} = await reader.read(); if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!line.startsWith("data: ")) continue;
+        const e = JSON.parse(line.slice(6));
+        if (e.type === "reply") msg.finish(e.reply);
+        else if (e.type === "fatal") msg.fail(e.error);
+        else onEvent(msg, e);
+      }
+    }
+  } catch (err) { msg.fail(err.message); }
+}
+
+async function send(text) {
+  if (busy || !text.trim()) return;
+  busy = true; $("#send").disabled = true; addUser(text); $("#input").value = "";
+  await streamRun("/api/chat/stream", {text}, new AgentMessage());
+  busy = false; $("#send").disabled = false; $("#input").focus(); refreshState();
+}
+
+async function confirmApproval(id, btn) {
+  if (busy) return; busy = true; btn.disabled = true; $("#send").disabled = true;
+  addUser(`Confirmed ${id}`);
+  await streamRun("/api/confirm/stream", {approval_id: id}, new AgentMessage());
+  busy = false; $("#send").disabled = false; refreshState();
+}
+
+function wireCards(root) { root.querySelectorAll("button[data-ap]").forEach(b => b.onclick = () => confirmApproval(b.dataset.ap, b)); }
+
+function addStatic(kind, text, reply) {
+  const el = document.createElement("div"); el.className = "msg " + kind;
+  el.innerHTML = `<div class="md"></div><div class="extra"></div>`;
+  renderMarkdown(el.querySelector(".md"), text);
+  if (reply && reply.approval_card) { el.querySelector(".extra").innerHTML = cardHtml(reply.approval_card); wireCards(el); }
+  if (reply) el.querySelector(".extra").insertAdjacentHTML("beforeend", `<span class="meta">${esc("proactive · " + replyMeta(reply))}</span>`);
+  $("#messages").appendChild(el); scrollChat();
+}
+
+$("#form").onsubmit = (e) => { e.preventDefault(); send($("#input").value); };
+
+// ---------------------------------------------------------------- demo controls
+document.querySelectorAll("[data-demo]").forEach(b => b.onclick = async () => {
+  const action = b.dataset.demo; let value = null;
+  if (action === "next_book") value = $("#nextBook").value;
+  if (action === "price_drift") { value = prompt("Add this many ₹ to the next held price", "200"); if (value === null) return; }
+  if (action === "advance_clock") value = "11";
+  if (action === "reset" && !confirm("Wipe all local state and reseed?")) return;
+  try {
+    const r = await (await fetch("/api/demo", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({action, value})})).json();
+    toast(r.note || r.detail || "done");
+    if (action === "reset") { $("#messages").innerHTML = ""; $("#trace").innerHTML = ""; for (const k in runs) delete runs[k]; evAfter = 0; noteAfter = 0; greet(); }
+  } catch (e) { toast("Error: " + e.message); }
+  refreshState();
+});
+
+// ---------------------------------------------------------------- trace pane
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
+  document.querySelectorAll(".pane").forEach(p => p.classList.toggle("active", p.id === t.dataset.pane));
+  refreshState();
+});
+
+function summary(e) {
+  const j = (o) => esc(JSON.stringify(o));
+  switch (e.type) {
+    case "run_start": return `<b>${esc(e.kind)}</b>`;
+    case "user_message": return `“${esc(e.text)}”`;
+    case "context": {
+      const ex = Object.values(e.memory_excluded || {}).reduce((a, r) => (a[r] = (a[r] || 0) + 1, a), {});
+      return `${e.estimated_tokens}/${e.budget_tokens} tok (×${e.calibration}) · memories in ${e.memory_included.length}, out ${j(ex)} · history ${e.history_included} kept / ${e.history_dropped} dropped`;
+    }
+    case "model_request": return `${esc(e.model)} · step ${e.turn}`;
+    case "model_call": return `${esc(e.model)} → ${e.tool_calls.length ? e.tool_calls.map(c => esc(c.name)).join(", ") : "reply"} · ${e.input_tokens}+${e.output_tokens} tok · ${Math.round(e.latency_ms)}ms${e.est_cost_usd != null ? " · $" + e.est_cost_usd : ""}${e.thoughts ? " · reasoning" : ""}`;
+    case "tool_call": return `${esc(e.tool)}(${esc(JSON.stringify(e.args)).slice(0, 140)}) → ${e.ok ? "ok" : "<b>" + esc(e.error) + "</b>"} · ${Math.round(e.latency_ms)}ms`;
+    case "agent_tool": return `${esc(e.tool)} → ${e.result && e.result.error ? "<b>" + esc(e.result.error) + "</b>" : esc(JSON.stringify(e.result).slice(0, 160))}`;
+    case "state": return `${esc(e.entity)}: ${esc(e.frm || "")} → <b>${esc(e.to)}</b> ${e.reason ? "· " + esc(e.reason) : ""}`;
+    case "approval": return `${esc(e.approval_id)} → <b>${esc(e.status)}</b>${e.reason ? " · " + esc(e.reason) : ""}${e.via ? " via " + esc(e.via) : ""}`;
+    case "guard": return `<b>${esc(e.rule)}</b>`;
+    case "run_end": return `${esc(e.phase)} · ${e.tokens ? e.tokens.input + "+" + e.tokens.output + " tok" : ""} · $${e.est_cost_usd ?? 0} · ${j(e.budget)}`;
+    default: { const {run_id, seq, ts, elapsed_ms, type, gseq, ...rest} = e; return esc(JSON.stringify(rest).slice(0, 180)); }
+  }
+}
+
+function renderEvent(e) {
+  let run = runs[e.run_id];
+  if (!run) {
+    run = document.createElement("div"); run.className = "run";
+    run.innerHTML = `<div class="head"><span>${esc(e.run_id)}</span><span class="pill">${esc(e.kind || "")}</span></div>`;
+    runs[e.run_id] = run; $("#trace").appendChild(run);
+  }
+  const row = document.createElement("div");
+  const hot = ["ambiguous_outcome", "reconcile", "untrusted_content", "event_detected", "retry", "decision"].includes(e.type);
+  const bad = ["guard", "error", "limit_reached"].includes(e.type) || (e.type === "tool_call" && !e.ok);
+  row.className = "ev" + (hot ? " hl" : "") + (bad ? " bad" : "");
+  row.innerHTML = `<span class="t">+${Math.round(e.elapsed_ms)}ms</span><span class="k ${esc(e.type)}">${esc(e.type)}</span><span class="s">${summary(e)}</span>`;
+  row.onclick = () => { const p = row.querySelector("pre"); if (p) p.remove(); else row.insertAdjacentHTML("beforeend", `<pre>${esc(JSON.stringify(e, null, 2))}</pre>`); };
+  run.appendChild(row);
+  const pane = $("#trace"); if (pane.scrollHeight - pane.scrollTop - pane.clientHeight < 200) pane.scrollTop = 1e9;
+}
+
+async function pollEvents() {
+  try {
+    const r = await (await fetch(`/api/events?after=${evAfter}`)).json();
+    if (r.total < evAfter) { evAfter = 0; return; }
+    r.events.forEach(renderEvent); evAfter = r.total;
+    const n = await (await fetch(`/api/notifications?after=${noteAfter}`)).json();
+    n.items.forEach(x => addStatic("note", x.text, x));
+    if (n.items.length) refreshState();
+    noteAfter = n.total;
+  } catch (e) {}
+  setTimeout(pollEvents, 700);
+}
+
+// ---------------------------------------------------------------- state & memory panes
+async function refreshState() {
+  let s;
+  try { s = await (await fetch("/api/state")).json(); } catch (e) { return; }
+  if (!s.ready) { $("#banner").style.display = "block"; $("#banner").textContent = "Agent not ready: " + (s.error || "starting…"); return; }
+  $("#banner").style.display = "none";
+  $("#model").textContent = s.model; $("#phase").textContent = s.workflow.phase;
+  $("#clock").textContent = s.now + (s.clock_offset_min ? ` (+${s.clock_offset_min}m)` : "");
+  const wf = s.workflow;
+  $("#state").innerHTML = `
+    <h3>Workflow ${esc(wf.id)} <span class="tag">${esc(wf.origin)}</span></h3>
+    <table class="grid"><tr><th>phase</th><td>${esc(wf.phase)}</td></tr>
+    <tr><th>request</th><td><code>${esc(JSON.stringify(wf.request))}</code></td></tr>
+    <tr><th>hold</th><td>${wf.hold ? esc(`${wf.hold.hold_id} · ${wf.hold.provider_name} · ${wf.hold.slot} · ₹${wf.hold.quoted_price} · expires ${wf.hold.expires_at}`) : "—"}</td></tr>
+    <tr><th>pending approval</th><td>${esc(wf.pending_approval_id || "—")}</td></tr>
+    <tr><th>armed failures</th><td>next book: ${esc(s.scenario.next_book_outcomes.join(", ") || "random (70/15/15)")} · hold price drift: ₹${s.scenario.hold_price_delta}</td></tr>
+    <tr><th>context calibration</th><td>×${s.context_calibration} (real tokens ÷ offline estimate)</td></tr></table>
+    <h3>Bookings (provider system)</h3>
+    <table class="grid"><tr><th>id</th><th>provider</th><th>service</th><th>slot</th><th>₹</th><th>status</th></tr>
+    ${s.bookings.map(b => `<tr><td>${esc(b.booking_id)}</td><td>${esc(b.provider_name)}</td><td>${esc(b.service)}</td><td>${esc(b.slot)}</td><td>${b.price}</td><td>${esc(b.status)}</td></tr>`).join("")}</table>`;
+  const order = {active: 0, superseded: 1, forgotten: 2};
+  const mems = [...s.memories].sort((a, b) => order[a.status] - order[b.status] || a.memory_id.localeCompare(b.memory_id));
+  $("#memory").innerHTML = `<p style="color:var(--muted);font-size:12px">${s.memories.length} stored · only <b>active</b> facts that are explicit or confirmed can reach the model.</p>
+    <table class="grid"><tr><th>id</th><th>key</th><th>scope</th><th>value</th><th>source</th><th>status</th></tr>
+    ${mems.map(m => `<tr><td>${esc(m.memory_id)}</td><td>${esc(m.key)}</td><td>${esc(m.scope)}</td><td>${esc(m.value)}</td>
+      <td><span class="tag ${m.source === "inferred" ? "inferred" : ""}">${esc(m.source)}${m.source === "inferred" ? (m.confirmed ? " ✓" : " ?") : ""}</span></td>
+      <td><span class="tag ${esc(m.status)}">${esc(m.status)}</span></td></tr>`).join("")}</table>`;
+}
+
+function greet() { addStatic("agent", "Hi! I can **find, book, reschedule or cancel** home services. What do you need?"); }
+greet(); refreshState(); pollEvents(); setInterval(refreshState, 5000);
+</script>
+</body>
+</html>
