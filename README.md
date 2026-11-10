@@ -21,8 +21,11 @@ Tests and evals need **no API key and no network**. They run against a scripted 
 
 ### Run the live demo
 
+Add **one** API key to `.env`. That's all the live demo needs:
+
 ```bash
-cp .env.example .env     # pick a model provider (see below)
+cp .env.example .env     # then set GEMINI_API_KEY (free: https://aistudio.google.com/apikey)
+                         # or OPENROUTER_API_KEY
 uv run errand-web        # http://127.0.0.1:8000 (set PORT to change)
 ```
 
@@ -40,15 +43,15 @@ A terminal chat is also available: `uv run errand-chat` (`/approve <id>`, `/poll
 
 ### Model providers
 
-Pick the provider with `LLM_PROVIDER` in `.env`:
+The provider is picked from `.env` at startup: **OpenRouter if `OPENROUTER_API_KEY` is set, otherwise Gemini if `GEMINI_API_KEY` is set**. Set `LLM_PROVIDER` to force one.
 
 | `LLM_PROVIDER` | Needs | Notes |
 |---|---|---|
-| `claude_cli` | A locally installed, signed-in `claude` CLI | No API key. Runs `claude -p` as a plain model: built-in tools, MCP and settings off; actions requested through a JSON schema. Default model `haiku` (`CLAUDE_CLI_MODEL`). |
-| `openrouter` | `OPENROUTER_API_KEY` | Streams reasoning; reports real per-call cost. `OPENROUTER_MODEL` to override. |
-| `gemini` | `GEMINI_API_KEY` | Probes for a working Flash model and fails over on quota. |
+| `gemini` | `GEMINI_API_KEY` (free tier works) | Probes for a working Flash model and fails over on quota. `GEMINI_MODEL` to override. |
+| `openrouter` | `OPENROUTER_API_KEY` | Streams reasoning; reports real per-call cost. `OPENROUTER_MODEL` to override (default `google/gemini-3.6-flash`). |
+| `claude_cli` | A locally installed, signed-in `claude` CLI | Optional no-key fallback, used only when no API key is set. Runs `claude -p` as a plain model: built-in tools, MCP and settings off; actions requested through a JSON schema. `CLAUDE_CLI_MODEL` (default `haiku`). |
 
-If `LLM_PROVIDER` is unset, the app uses OpenRouter when its key is set, then Gemini, and otherwise the local CLI. The agent loop, approvals, guards and traces are identical across providers; only the transport differs.
+The agent loop, approvals, guards and traces are identical across providers; only the transport differs.
 
 ### Record the end-to-end trace
 
