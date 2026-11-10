@@ -197,7 +197,7 @@ try {
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const short = (o, n = 110) => { const s = typeof o === "string" ? o : JSON.stringify(o); return s.length > n ? s.slice(0, n) + "…" : s; };
-let evAfter = 0, noteAfter = 0, busy = false;
+let evAfter = 0, noteAfter = 0, busy = false, evEpoch = null;
 const runs = {};
 
 // ---------------------------------------------------------------- chat
@@ -389,7 +389,7 @@ document.querySelectorAll("[data-demo]").forEach(b => b.onclick = async () => {
   try {
     const r = await (await fetch("/api/demo", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({action, value})})).json();
     toast(r.note || r.detail || "done");
-    if (action === "reset") { $("#messages").innerHTML = ""; $("#trace").innerHTML = ""; for (const k in runs) delete runs[k]; evAfter = 0; noteAfter = 0; greet(); }
+    if (action === "reset") { $("#messages").innerHTML = ""; $("#trace").innerHTML = ""; greet(); }
   } catch (e) { toast("Error: " + e.message); }
   refreshState();
 });
@@ -442,8 +442,15 @@ function renderEvent(e) {
 async function pollEvents() {
   try {
     const r = await (await fetch(`/api/events?after=${evAfter}`)).json();
-    if (r.total < evAfter) { evAfter = 0; return; }
-    r.events.forEach(renderEvent); evAfter = r.total;
+    // A reset or server restart starts a new epoch: drop what we drew and replay from the start.
+    if (r.epoch !== evEpoch || r.total < evAfter) {
+      const fresh = r.epoch !== evEpoch; evEpoch = r.epoch; evAfter = 0;
+      $("#trace").innerHTML = ""; for (const k in runs) delete runs[k];
+      if (fresh) noteAfter = 0;
+      setTimeout(pollEvents, 0); return;
+    }
+    r.events.forEach(e => { try { renderEvent(e); } catch (err) { console.warn("trace render failed", e, err); } });
+    evAfter = r.total;
     const n = await (await fetch(`/api/notifications?after=${noteAfter}`)).json();
     n.items.forEach(x => addStatic("note", x.text, x));
     if (n.items.length) refreshState();

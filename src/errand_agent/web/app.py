@@ -11,6 +11,7 @@ import queue
 import shutil
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -36,6 +37,7 @@ class Hub:
     def __init__(self) -> None:
         self.lock = threading.RLock()
         self.events: list[dict] = []
+        self.epoch = uuid.uuid4().hex[:8]   # changes on every reset; the page resyncs its trace when it does
         self.notifications: list[dict] = []
         self.llm: LLMClient | None = None
         self.llm_error: str | None = None
@@ -61,6 +63,7 @@ class Hub:
                 self.agent.service.close()
             shutil.rmtree(DATA, ignore_errors=True)
             self.events.clear()
+            self.epoch = uuid.uuid4().hex[:8]
             self.notifications.clear()
             self.clock = OffsetClock()
             self.ensure_llm()
@@ -174,7 +177,7 @@ def confirm_stream(body: ConfirmIn) -> StreamingResponse:
 
 @app.get("/api/events")
 def events(after: int = 0) -> dict:
-    return {"events": hub.events[after:], "total": len(hub.events)}
+    return {"events": hub.events[after:], "total": len(hub.events), "epoch": hub.epoch}
 
 
 @app.get("/api/notifications")
